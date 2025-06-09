@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Drone Görev Oyunu</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: 'Segoe UI', sans-serif;
+      background-color: #1a1a2e; /* Darker background */
+    }
+    #ui {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .panel {
+      pointer-events: auto;
+      background: rgba(20, 20, 30, 0.9);
+      border: 2px solid #444;
+      border-radius: 16px;
+      padding: 12px;
+      color: #fff;
+      font-size: 14px;
+      box-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+    }
+    #code {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      width: 340px;
+    }
+    #pyInput {
+      width: 95%;
+      height: 250px; /* Daha fazla alan */
+      background: #1e1e2e;
+      color: #00ffcc;
+      font-family: 'Fira Code', monospace;
+      padding: 10px;
+      font-size: 13px;
+      border-radius: 10px;
+      border: none;
+      resize: none;
+    }
+    #runBtn {
+      width: 100%;
+      margin-top: 8px;
+      padding: 10px;
+      border: none;
+      background: linear-gradient(to right, #00c853, #64dd17);
+      color: white;
+      font-weight: bold;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+    #runBtn:hover {
+      background: linear-gradient(to right, #64dd17, #00c853);
+    }
+    #stats {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 160px;
+      background: rgba(0, 0, 0, 0.6);
+      font-size: 15px;
+      text-align: center;
+      font-family: 'Courier New', monospace;
+    }
+    canvas {
+      display: block;
+    }
+
+    #mode-toggle {
+      position: absolute;
+      top: 100px;
+      right: 30px; /* Stats panelin yanına */
+      z-index: 999;
+      padding: 8px 14px;
+      background-color: #444;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.3s ease;
+    }
+    #mode-toggle:hover {
+      background-color: #555;
+    }
+
+    #camera-toggle {
+        position: absolute;
+        top: 450px; /* Mode toggle'ın altına */
+        right: 30px;
+        z-index: 999;
+        padding: 8px 14px;
+        background-color: #180b8e;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background 0.3s ease;
+    }
+    #camera-toggle:hover {
+        background-color: #555;
+    }
+
+    .info-panel {
+      position: absolute;
+      top: 140px; /* Mode toggle'ın altına */
+      right: 10px;
+      z-index: 999;
+      background: rgba(0,0,0,0.8);
+      color: #fff;
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-family: sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      display: none;
+      max-width: 200px;
+      transition: opacity 0.3s ease;
+    }
+
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "jsm/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+</head>
+<body>
+  <div id="ui">
+    <div id="code" class="panel">
+      <textarea id="pyInput" placeholder="Python kodunu yaz... (örn: takeoff() \nforward(10) \nland())"></textarea>
+      <button id="runBtn">▶️ ÇALIŞTIR</button>
+    </div>
+
+    <div id="stats" class="panel">
+      <div>🏆 Skor: <span id="score">0</span></div>
+      <div>❤️ Can: <span id="life">3</span></div>
+    </div>
+  </div>
+
+  <button id="mode-toggle">
+    🧠    Kod Sürüşü    👩‍💻
+  </button>
+
+  <button id="camera-toggle">
+    🎥 3. Şahıs Kamera
+  </button>
+
+  <div id="info-panel-free" class="info-panel">
+    <strong>🕹️ Serbest Sürüş</strong><br>
+    <ul style="padding-left: 16px; margin: 8px 0 0 0;">
+      <li>⬆️ W – İleri</li>
+      <li>⬇️ S – Geri</li>
+      <li>↩️ A – Sola Dön</li>
+      <li>↪️ D – Sağa Dön</li>
+      <li>Q – Yukarı Çık</li>
+      <li>E – Aşağı İn</li>
+      <li>␣ Space – Kalkış/İniş</li>
+      <li>R – Spin</li>
+    </ul>
+  </div>
+
+  <div id="info-panel-code" class="info-panel" style="display: block;">
+    <strong>🐍 Python Komutları</strong><br>
+    <ul style="padding-left: 16px; margin: 8px 0 0 0;">
+      <li><code>takeoff(height)</code></li>
+      <li><code>land()</code></li>
+      <li><code>up(distance)</code></li>
+      <li><code>down(distance)</code></li>
+      <li><code>forward(distance)</code></li>
+      <li><code>backward(distance)</code></li>
+      <li><code>turn_left(degrees)</code></li>
+      <li><code>turn_right(degrees)</code></li>
+      <li><code>spin()</code></li>
+      <li><code>wait(ticks)</code></li>
+    </ul>
+  </div>
+
+  // Drone Malzeme Alma ve Bırakma Yükseklikleri
+  <div id="instruction-panel" class="panel" style="position: absolute; top: 360px; left: 10px; width: 340px; display: flex; flex-direction: column; align-items: center;">
+        <img src="malzeme.png" alt="Drone Malzeme Alma ve Bırakma Yükseklikleri" style="width: 335px; height: 200px;">
+        <p id="drone-info" style="font-size: 18px;">Drone Yüksekliği: <span id="drone-height">0.0</span></p>
+    </div>
+
+<!-- // drone yükseklik bilgisi
+<div id="drone-info" style="position: absolute; left: 10px; bottom: 10px; background: rgba(0, 0, 0, 0.7); color: white; padding: 10px; border-radius: 8px; font-size: 14px;">
+  Drone Yüksekliği: <span id="drone-height">0.0</span>
+</div> -->
+
+
+
+  <script type="module">
+    import * as THREE from 'three';
+    // OrbitControls kaldırıldı
+
+     // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-analytics.js";
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
+
+  // Your web app's Firebase configuration
+  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+  const firebaseConfig = {
+    apiKey: "AIzaSyD7GpKpUokGG2gn325x8o2kqa4gU-tTi6w",
+    authDomain: "dronegamestats.firebaseapp.com",
+    projectId: "dronegamestats",
+    storageBucket: "dronegamestats.firebasestorage.app",
+    messagingSenderId: "833558650147",
+    appId: "1:833558650147:web:98c61f4636271e7b56c096",
+    measurementId: "G-WEKDT3H66T"
+  };
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+  const analytics = getAnalytics(app);
+ const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  let currentUser = null; // Aktif kullanıcı bilgisi
+
+  // Kullanıcı durumu değiştiğinde (giriş/çıkış)
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      currentUser = user;
+      console.log("Kullanıcı giriş yaptı:", user.uid);
+      // Kullanıcı arayüzünde giriş durumunu güncelleme veya hoşgeldin mesajı gösterme
+      // Örneğin, "Hoşgeldin, Anonim Oyuncu!"
+    } else {
+      currentUser = null;
+      console.log("Kullanıcı çıkış yaptı veya anonim değil.");
+      // Kullanıcı yoksa anonim olarak giriş yapmayı dene
+      signInAnonymously(auth).then(() => {
+        console.log("Anonim olarak giriş yapıldı.");
+      }).catch((error) => {
+        console.error("Anonim giriş hatası:", error);
+      });
+    }
+  });
+
+  // Oyun başladığında veya sayfa yüklendiğinde anonim olarak giriş yapmaya çalış
+  signInAnonymously(auth).then(() => {
+    console.log("Anonim olarak giriş yapıldı.");
+  }).catch((error) => {
+    console.error("Anonim giriş hatası:", error);
+  });
+
+  // Puanı Firebase'e kaydetme fonksiyonu
+  async function saveScoreToFirebase(score) {
+    if (!currentUser) {
+      console.warn("Kullanıcı girişi yapılmadı, puan kaydedilemiyor.");
+      return;
+    }
+    try {
+      // 'scores' adında bir koleksiyona puanı ekle
+      const docRef = await addDoc(collection(db, "scores"), {
+        userId: currentUser.uid,
+        score: score,
+        timestamp: new Date(),
+        // İsterseniz drone_log'ları da buraya ekleyebilirsiniz, ancak çok büyük olabilir
+        // droneLogs: [...]
+      });
+      console.log("Puan kaydedildi, Belge ID:", docRef.id);
+    } catch (e) {
+      console.error("Puan kaydetme hatası:", e);
+    }
+  }
+
+  // En iyi skorları çekme fonksiyonu (örnek)
+  async function getHighScores() {
+    try {
+      const scoresCol = collection(db, "scores");
+      const q = query(scoresCol, orderBy("score", "desc"), limit(10)); // En yüksek 10 skoru al
+      const querySnapshot = await getDocs(q);
+      const highScores = [];
+      querySnapshot.forEach((doc) => {
+        highScores.push(doc.data());
+      });
+      console.log("En Yüksek Skorlar:", highScores);
+      return highScores;
+    } catch (e) {
+      console.error("Skorları çekme hatası:", e);
+      return [];
+    }
+  }
+
+  // ... (Geri kalan tüm mevcut oyun kodunuz buraya gelecek) ...
+  // Örneğin, oyunda bir görev bittiğinde veya oyun bittiğinde saveScoreToFirebase(score) çağırın.
+
+  // Malzeme toplandığında veya hedef bölgeye bırakıldığında ilgili bilgileri kaydetmek için
+  // 'animate' fonksiyonunuzdaki ilgili yere aşağıdaki gibi eklemeler yapabilirsiniz:
+  /*
+  // ... animate fonksiyonunun içinde ...
+  if (distToTarget <= targetZoneRadius + 0.5 && drone.position.y < 0.5) {
+      // ... mevcut kodunuz (puan artırma, efektler vb.) ...
+      score += 10;
+      updateScore();
+      // Malzeme bırakıldığında log kaydet (opsiyonel, çok log tutabilir)
+      // saveGameLog({
+      //   userId: currentUser.uid,
+      //   action: "material_dropped",
+      //   materialId: carriedMaterial.uuid, // Malzemeye unique bir ID verebilirsiniz
+      //   position: { x: drone.position.x, y: drone.position.y, z: drone.position.z },
+      //   scoreChange: 10,
+      //   timestamp: new Date()
+      // });
+      carriedMaterial = null;
+  }
+  // ...
+  */
+
+  // Örnek: Oyun bittiğinde skoru kaydetmek için
+  // Bir "oyun bitti" durumu tanımlamanız ve o durumda bu fonksiyonu çağırmanız gerekir.
+
+
+    let scene = new THREE.Scene();
+    let camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+    let renderer = new THREE.WebGLRenderer({ antialias: true }); // Antialiasing for smoother edges
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    document.body.appendChild(renderer.domElement);
+
+    const sun = new THREE.DirectionalLight(0xffffff, 2);
+    sun.position.set(5, 5, 5);
+    sun.castShadow = true;
+    sun.shadow.mapSize.width = 1024;
+    sun.shadow.mapSize.height = 1024;
+    sun.shadow.camera.near = 0.5;
+    sun.shadow.camera.far = 50;
+    sun.shadow.camera.left = -10;
+    sun.shadow.camera.right = 10;
+    sun.shadow.camera.top = 10;
+    sun.shadow.camera.bottom = -10;
+    scene.add(sun);
+
+    let droneX = 0, droneY=0.1, droneZ = 0, droneRotY = 0; // droneY for height
+    let commandQueue = [];
+    let isDroneMoving = false; // Add this flag
+
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.5);
+    scene.add(hemi);
+
+    let ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+    let pointLight = new THREE.PointLight(0xffff99, 1);
+    pointLight.position.set(5, 10, 5);
+    scene.add(pointLight);
+
+    // Drone Oluşturma (meshlerden)
+    let drone;
+    let propellers = []; // To store propeller meshes for rotation
+
+    function createDrone() {
+        const bodyGeometry = new THREE.BoxGeometry(0.6, 0.2, 0.6);
+        const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x224466, roughness: 0.5, metalness: 0.8 });
+        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+        body.castShadow = true;
+        body.receiveShadow = true;
+
+        // Genişletilmiş Kanatlar
+        const wingGeometry = new THREE.BoxGeometry(1.8, 0.05, 0.2); // Uzun, ince yatay kanat
+        const wingMaterial = new THREE.MeshStandardMaterial({ color: 0x224466, roughness: 0.5, metalness: 0.8 });
+
+        const wing1 = new THREE.Mesh(wingGeometry, wingMaterial);
+        wing1.rotation.y = Math.PI / 2; // Dikey kanat
+        body.add(wing1);
+
+        const wing2 = new THREE.Mesh(wingGeometry, wingMaterial);
+        body.add(wing2); // Yatay kanat
+
+        // Pervane altı artı tasarımı
+        const plusGeometry = new THREE.BoxGeometry(0.08, 0.01, 0.4); // Artı dikey parça
+        const plusMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 }); // Yeşil renk
+
+        const plusH = new THREE.Mesh(plusGeometry, plusMaterial);
+        plusH.position.set(0, 0.11, 0); // Üste ve merkeze
+        body.add(plusH);
+
+        const plusV = new THREE.Mesh(plusGeometry, plusMaterial);
+        plusV.rotation.y = Math.PI / 2; // Artı yatay parça
+        plusV.position.set(0, 0.11, 0); // Üste ve merkeze
+        body.add(plusV);
+
+
+        // Propeller geometry and material
+        const propellerGeometry = new THREE.CylinderGeometry(0.30, 0.30, 0.02, 16);
+        const propellerMaterial = new THREE.MeshStandardMaterial({ color: 0x224466, roughness: 0.2, metalness: 0.1 });
+
+        // Add propellers to arms
+        const prop1 = new THREE.Mesh(propellerGeometry, propellerMaterial);
+        prop1.position.set(0.7, 0.15, 0); // Kanatların ucuna denk gelecek şekilde ayarla
+        propellers.push(prop1);
+        body.add(prop1);
+
+        const prop2 = new THREE.Mesh(propellerGeometry, propellerMaterial);
+        prop2.position.set(-0.7, 0.15, 0);
+        propellers.push(prop2);
+        body.add(prop2);
+
+        const prop3 = new THREE.Mesh(propellerGeometry, propellerMaterial);
+        prop3.position.set(0, 0.15, 0.7);
+        propellers.push(prop3);
+        body.add(prop3);
+
+        const prop4 = new THREE.Mesh(propellerGeometry, propellerMaterial);
+        prop4.position.set(0, 0.15, -0.7);
+        propellers.push(prop4);
+        body.add(prop4);
+
+        // Legs (optional, for aesthetics)
+        const legGeometry = new THREE.CylinderGeometry(0.02, 0.02, 0.3, 8);
+        const legMaterial = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.5 });
+
+        const leg1 = new THREE.Mesh(legGeometry, legMaterial);
+        leg1.position.set(0.2, -0.2, 0.2);
+        body.add(leg1);
+
+        const leg2 = new THREE.Mesh(legGeometry, legMaterial);
+        leg2.position.set(-0.2, -0.2, -0.2);
+        body.add(leg2);
+
+        const leg3 = new THREE.Mesh(legGeometry, legMaterial);
+        leg3.position.set(0.2, -0.2, -0.2);
+        body.add(leg3);
+
+        const leg4 = new THREE.Mesh(legGeometry, legMaterial);
+        leg4.position.set(-0.2, -0.2, 0.2);
+        body.add(leg4);
+
+        body.position.set(droneX, droneY, droneZ);
+        body.scale.set(0.5, 0.5, 0.5); // Overall drone scale
+        scene.add(body);
+        drone = body;
+    }
+
+    createDrone();
+
+
+    // Gridli Zemin
+    const gridHelper = new THREE.GridHelper(20, 20, 0x00ff00, 0x888888); // size, divisions, colorCenterLine, colorGrid
+    scene.add(gridHelper);
+
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(20, 20),
+      new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8, metalness: 0.1 })
+    );
+    plane.rotation.x = -Math.PI / 2;
+    plane.position.y = 0; // Exactly on grid
+    plane.receiveShadow = true;
+    scene.add(plane);
+
+
+    // Hedef Alanı (Circle Target)
+    const targetGeometry = new THREE.RingGeometry(1.0, 1.2, 32); // innerRadius, outerRadius, thetaSegments
+    const targetMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
+    const targetRing = new THREE.Mesh(targetGeometry, targetMaterial);
+    targetRing.rotation.x = -Math.PI / 2;
+    targetRing.position.set(0, 0.05, -5); // Position the target
+    scene.add(targetRing);
+
+
+    // Kamera Modları
+    let activeCamera;
+
+    // 3. Şahıs Kamera (Follow Camera)
+    const thirdPersonCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    thirdPersonCamera.position.set(0, 0, 0); // Başlangıç pozisyonu önemsiz, updateCamera'da ayarlanacak
+
+    // Kuş Bakışı Kamera
+    const topDownCamera = new THREE.OrthographicCamera(
+        window.innerWidth / -20, window.innerWidth / 20,
+        window.innerHeight / 20, window.innerHeight / -20,
+        0.1, 1000
+    );
+    topDownCamera.position.set(0, 15, 0);
+    topDownCamera.lookAt(0, 0, 0);
+
+    // Genel Bakış Kamerası
+    const generalCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    generalCamera.position.set(8, 5, 8);
+    generalCamera.lookAt(0, 0, 0);
+
+    activeCamera = thirdPersonCamera; // Başlangıç kamerası
+
+    function updateCamera() {
+        if (activeCamera === thirdPersonCamera && drone) {
+            // Drone'un arkasından takip et
+            const offset = new THREE.Vector3(0, 2, 4); // Yükseklik ve geriye doğru uzaklık
+            offset.applyQuaternion(drone.quaternion); // Drone'un rotasyonuna göre ofseti ayarla
+
+            thirdPersonCamera.position.copy(drone.position).add(offset);
+            thirdPersonCamera.lookAt(drone.position.x, drone.position.y + 0.5, drone.position.z); // Drone'a doğru baksın
+        }
+        // Diğer kameralar sabit kalır, güncellemeye gerek yok
+    }
+
+    // Kamera geçiş butonu
+    const cameraToggleButton = document.getElementById("camera-toggle");
+    let cameraModeIndex = 0;
+    const cameraModes = ["3. Şahıs Kamera", "Kuş Bakışı Kamera", "Genel Bakış Kamerası"];
+    const cameras = [thirdPersonCamera, topDownCamera, generalCamera];
+
+    cameraToggleButton.addEventListener("click", () => {
+        cameraModeIndex = (cameraModeIndex + 1) % cameras.length;
+        activeCamera = cameras[cameraModeIndex];
+        cameraToggleButton.textContent = `🎥 ${cameraModes[cameraModeIndex]}`;
+        // Orthographic camera resize if needed
+        if (activeCamera === topDownCamera) {
+            const aspect = window.innerWidth / window.innerHeight;
+            topDownCamera.left = -10 * aspect;
+            topDownCamera.right = 10 * aspect;
+            topDownCamera.top = 10;
+            topDownCamera.bottom = -10;
+            topDownCamera.updateProjectionMatrix();
+        }
+    });
+
+    window.addEventListener('resize', () => {
+        const aspect = window.innerWidth / window.innerHeight;
+        camera.aspect = aspect;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+
+        // Orthographic camera resize
+        if (activeCamera === topDownCamera) {
+            topDownCamera.left = -10 * aspect;
+            topDownCamera.right = 10 * aspect;
+            topDownCamera.top = 10;
+            topDownCamera.bottom = -10;
+            topDownCamera.updateProjectionMatrix();
+        }
+    });
+
+
+    const keys = { w: false, a: false, s: false, d: false, q: false, e: false, ' ': false, r: false };
+    // score
+    // Skor
+    let score = 0;
+    const scoreEl = document.getElementById("score");
+    function updateScore() {
+      scoreEl.textContent = `${score}`;
+    }
+    let life = 3;
+    const lifeEl = document.getElementById("life");
+    function updateLife() {
+        lifeEl.textContent = `${life}`;
+    }
+    let controlMode = "code"; // "code" veya "free"
+    const infoPanelFree = document.getElementById("info-panel-free");
+    const infoPanelCode = document.getElementById("info-panel-code");
+
+
+    // === PYODIDE ===
+let pyodideReady = false;
+let pyodide = null;
+loadPyodide().then(async (py) => {
+  pyodide = py;
+  pyodideReady = true;
+});
+
+document.getElementById("runBtn").onclick = async () => {
+  if (!pyodideReady) return alert("Pyodide yükleniyor...");
+  const code = document.getElementById("pyInput").value;
+  // Pyodide'a özel fonksiyonlar tanımla
+  pyodide.globals.set("forward", forward);
+  pyodide.globals.set("backward", backward);
+  pyodide.globals.set("turn_left", turn_left);
+  pyodide.globals.set("turn_right", turn_right);
+  pyodide.globals.set("spin", spin);
+  pyodide.globals.set("takeoff", takeoff);
+  pyodide.globals.set("land", land);
+  pyodide.globals.set("up", up);
+  pyodide.globals.set("down", down);
+  pyodide.globals.set("wait", wait);
+  try { await pyodide.runPythonAsync(code); } catch (e) { alert(e); }
+};
+
+
+    // Malzemeleri ekle (rewards yerine "materials")
+    let materials = []; // 'const' yerine 'let' olarak değiştirildi
+    const targetZoneRadius = 1.0; // Radius of the target ring
+    const targetZonePosition = targetRing.position;
+
+    function createMaterial(x, z) {
+      const geo = new THREE.SphereGeometry(0.2, 16, 16);
+      const mat = new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff }); // Random color for materials
+      const material = new THREE.Mesh(geo, mat);
+      material.position.set(x, 0.2, z); // Materials start on the ground
+      material.castShadow = true;
+      scene.add(material);
+      materials.push(material);
+    }
+
+    function flashLight(x, y, z) {
+      const light = new THREE.PointLight(0xffff00, 2, 2);
+      light.position.set(x, y + 0.3, z);
+      scene.add(light);
+      let t = 0;
+      const maxT = 30;
+      function animateFlash() {
+        if (t < maxT) {
+          light.intensity = 2 - (t / maxT) * 2;
+          t++;
+          requestAnimationFrame(animateFlash);
+        } else {
+          scene.remove(light);
+        }
+      }
+      animateFlash();
+    }
+
+    const smokeMaterialDefault = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, transparent: true, opacity: 0.5 });
+
+    function spawnSmoke(x, y, z) {
+      let material = smokeMaterialDefault.clone();
+      const smoke = new THREE.Sprite(material);
+      smoke.position.set(x, y + 0.5, z);
+      smoke.scale.set(2, 2, 2);
+      scene.add(smoke);
+
+      let t = 0;
+      const maxT = 60;
+      function animateSmoke() {
+        if (t < maxT) {
+          smoke.material.opacity -= 0.01;
+          smoke.scale.multiplyScalar(1.01);
+          t++;
+          requestAnimationFrame(animateSmoke);
+        } else {
+          scene.remove(smoke);
+        }
+      }
+      animateSmoke();
+    }
+
+    function spawnParticles(x, y, z) {
+      const particleGroup = new THREE.Group();
+      for (let i = 0; i < 30; i++) {
+        const geo = new THREE.SphereGeometry(0.03, 8, 8);
+        const mat = new THREE.MeshBasicMaterial({ color: 0xffff99, transparent: false, opacity: 0.5 });
+        const p = new THREE.Mesh(geo, mat);
+        p.position.set(x, y + 0.3, z);
+        p.userData = {
+          velocity: new THREE.Vector3(
+            (Math.random() - 0.5) * 0.1,
+            Math.random() * 0.1,
+            (Math.random() - 0.5) * 0.1
+          )
+        };
+        particleGroup.add(p);
+      }
+      scene.add(particleGroup);
+
+      let frame = 0;
+      function animateParticles() {
+        frame++;
+        particleGroup.children.forEach(p => {
+          p.position.add(p.userData.velocity);
+          p.material.opacity -= 0.01;
+        });
+        if (frame < 60) {
+          requestAnimationFrame(animateParticles);
+        } else {
+          scene.remove(particleGroup);
+        }
+      }
+      animateParticles();
+    }
+
+    // Malzeme konumları
+    createMaterial(3, 3);
+    createMaterial(-2, 4);
+    createMaterial(5, -1);
+    createMaterial(-4, -3);
+    createMaterial(1, 6);
+
+    // Drone'un taşıdığı bir malzeme var mı?
+    let carriedMaterial = null; 
+
+    //animate function
+    function animate() {
+      requestAnimationFrame(animate);
+      
+      if (drone) {
+          // Pervaneleri yalnızca drone hareket ediyorsa döndür
+          if (isDroneMoving || commandQueue.length > 0) {
+            propellers.forEach(propeller => {
+                propeller.rotation.y += 0.5; // Adjust rotation speed as needed
+            });
+          }
+          updateDrone();
+
+
+        // Drone yüksekliğini göstergeye güncelle
+        const droneHeightElement = document.getElementById("drone-height");
+        if (droneHeightElement) {
+        droneHeightElement.textContent = drone.position.y.toFixed(2); // Örneğin 2 ondalık basamakla göster
+        }
+      }
+
+      key_kontrol()
+
+      // *** MALZEME TOPLAMA VE BIRAKMA MANTIĞI BAŞLANGICI ***
+      if (!carriedMaterial) { // Eğer drone bir şey taşımıyorsa, yeni malzeme aramaya devam et
+          for (let i = materials.length - 1; i >= 0; i--) {
+              const material = materials[i];
+              // Drone malzemeye yeterince yakın ve belirli bir yükseklikteyse (toplama yüksekliği)
+              if (drone && drone.position.distanceTo(material.position) < 0.8 && drone.position.y > 0.8) {
+                  carriedMaterial = material; // Bu malzemeyi taşınan malzeme olarak işaretle
+                  // Malzemeyi drone'un altına ekle (görsel olarak takip etsin)
+                  drone.add(carriedMaterial); // Malzemeyi drone'un child'ı yap
+                  carriedMaterial.position.set(0, -0.7, 0); // Drone'a göre pozisyonunu ayarla
+                  break; // Bir seferde sadece bir malzeme taşıyabiliriz
+              }
+          }
+      } else { // Eğer drone bir malzeme taşıyorsa
+          // Malzeme zaten drone'un child'ı olduğu için pozisyonu otomatik takip edecek.
+          // Şimdi hedef bölgeye bırakma koşulunu kontrol et
+          const distToTarget = new THREE.Vector2(drone.position.x - targetZonePosition.x, drone.position.z - targetZonePosition.z).length();
+          
+          // Malzeme hedefe yakın ve drone alçaktaysa (bırakma yüksekliği)
+          if (distToTarget <= targetZoneRadius + 0.5 && drone.position.y < 0.5) {
+              drone.remove(carriedMaterial); // Drone'dan kaldır
+              scene.remove(carriedMaterial); // Sahneden tamamen kaldır
+              materials = materials.filter(m => m !== carriedMaterial); // Materials dizisinden çıkar
+              
+              // Efektleri dünya koordinatlarında çalıştırmak için carriedMaterial'ın son dünya pozisyonunu kullan
+              // carriedMaterial'ın parent'ı drone olduğu için position.x, position.y, position.z değerleri localdir.
+              // Dünya pozisyonunu almak için önce updateWorldMatrix ve getWorldPosition kullanmalıyız.
+              // Ancak burada zaten scene.remove(carriedMaterial) yapıldığı için,
+              // drone.position'ı referans alarak efektlerin pozisyonunu ayarlamak daha pratik.
+              flashLight(drone.position.x, drone.position.y - 0.7, drone.position.z); 
+            //   spawnSmoke(drone.position.x, drone.position.y - 0.7, drone.position.z);
+              spawnParticles(drone.position.x, drone.position.y - 0.7, drone.position.z);
+              
+              score += 10; // Puanlama
+              updateScore();
+              saveScoreToFirebase(score)
+              carriedMaterial = null; // Taşıdığı malzemeyi sıfırla
+          } else if (drone.position.y < 0.3 && distToTarget > targetZoneRadius + 0.5) {
+              // Eğer drone malzeme taşırken hedef dışı bir yerde zemine inerse, malzemeyi düşür
+              drone.remove(carriedMaterial); // Drone'dan ayır
+              scene.add(carriedMaterial); // Sahneye geri ekle
+              carriedMaterial.position.set(drone.position.x, 0.2, drone.position.z); // Yere düşür
+              carriedMaterial = null; // Taşıdığı malzemeyi sıfırla
+          }
+      }
+      // *** MALZEME TOPLAMA VE BIRAKMA MANTIĞI SONU ***
+
+
+      if (commandQueue.length > 0) {
+        commandQueue.shift()();
+        isDroneMoving = true; // Set moving flag when command is active
+      } else {
+        isDroneMoving = false; // Reset moving flag when command queue is empty
+      }
+      updateCamera(); // Kamerayı her karede güncelle
+      renderer.render(scene, activeCamera); // Aktif kamerayı kullan
+    }
+    animate();
+
+    
+
+window.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+window.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+
+function key_kontrol() {
+      if (controlMode !== "free") return; // sadece free modunda çalışsın
+      
+      // Serbest sürüşte tuşa basılı tutulduğu sürece komutları ekle
+      // Ancak aynı komutun ard arda çok hızlı eklenmesini engellemek için basit bir gecikme ekleyelim
+      const actionDelay = 50; // ms
+      if (performance.now() - lastActionTime < actionDelay) return;
+
+      let actionTaken = false;
+
+      if (keys.a) { turn_left(3); actionTaken = true; }
+      if (keys.d) { turn_right(3); actionTaken = true; }
+      if (keys.w) { forward(0.1); actionTaken = true; }
+      if (keys.s) { backward(0.1); actionTaken = true; }
+      if (keys.q) { up(0.1); actionTaken = true; } // Q for Up
+      if (keys.e) { down(0.1); actionTaken = true; } // E for Down
+      if (keys.r) { spin(); actionTaken = true; } // R for Spin
+      
+      // Takeoff/Land için tek basışta tetikleme
+      if (keys[' ']) {
+          if (!isSpacePressed) { // Sadece ilk basışta tetikle
+              if (droneY < 0.5) { // Havada değilse kalkış
+                  takeoff(2);
+              } else { // Havadaysa iniş
+                  land();
+              }
+              isSpacePressed = true; // Tuşa basılı olduğunu işaretle
+              actionTaken = true;
+          }
+      } else {
+          isSpacePressed = false; // Tuş serbest bırakıldığında sıfırla
+      }
+
+      if (actionTaken) {
+          lastActionTime = performance.now();
+          isDroneMoving = true; // Serbest sürüşte hareket olduğunu belirt
+      } else {
+          // isDroneMoving = false; // Eğer hiç tuşa basılmıyorsa durdur
+      }
+}
+
+let isSpacePressed = false; // Uzay tuşuna basılıp basılmadığını takip etmek için
+let lastActionTime = 0; // Serbest sürüşte komut gecikmesi için
+
+
+function updateDrone() {
+  if (drone) {
+    drone.position.set(droneX, droneY, droneZ);
+    drone.rotation.y = droneRotY;
+  }
+}
+
+function nextCommand() {
+  if (commandQueue.length > 0) {
+    const cmd = commandQueue.shift();
+    cmd();
+  } else {
+    // isRunning = false; // Not needed as much with queue
+  }
+}
+
+function forward(step = 1) {
+  commandQueue.push(() => {
+    const totalDistance = parseFloat(step); // 1 unit in game world
+    const duration = Math.max(100, totalDistance * 100); // minimum 100ms
+    const startTime = performance.now();
+    const startX = droneX;
+    const startZ = droneZ;
+    const targetX = startX - Math.sin(droneRotY) * totalDistance;
+    const targetZ = startZ - Math.cos(droneRotY) * totalDistance;
+
+    function animate(currentTime) {
+      const elapsed = currentTime - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      droneX = startX + (targetX - startX) * t;
+      droneZ = startZ + (targetZ - startZ) * t;
+
+      if (t < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        nextCommand();
+      }
+    }
+    requestAnimationFrame(animate);
+  });
+}
+
+function backward(step = 1) {
+  commandQueue.push(() => {
+    const totalDistance = parseFloat(step);
+    const duration = Math.max(100, totalDistance * 100);
+    const startTime = performance.now();
+    const startX = droneX;
+    const startZ = droneZ;
+    const targetX = startX + Math.sin(droneRotY) * totalDistance;
+    const targetZ = startZ + Math.cos(droneRotY) * totalDistance;
+
+    function animate(currentTime) {
+      const elapsed = currentTime - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      droneX = startX + (targetX - startX) * t;
+      droneZ = startZ + (targetZ - startZ) * t;
+
+      if (t < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        nextCommand();
+      }
+    }
+    requestAnimationFrame(animate);
+  });
+}
+
+function turn_left(degrees = 90) {
+  commandQueue.push(() => {
+    const totalRotation = THREE.MathUtils.degToRad(parseFloat(degrees));
+    const duration = 300;
+    const startTime = performance.now();
+    const startRot = droneRotY;
+    const targetRot = startRot + totalRotation;
+
+    function animate(currentTime) {
+      const elapsed = currentTime - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      droneRotY = startRot + (targetRot - startRot) * t;
+
+      if (t < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        nextCommand();
+      }
+    }
+    requestAnimationFrame(animate);
+  });
+}
+
+function turn_right(degrees = 90) {
+  commandQueue.push(() => {
+    const totalRotation = THREE.MathUtils.degToRad(parseFloat(degrees));
+    const duration = 300;
+    const startTime = performance.now();
+    const startRot = droneRotY;
+    const targetRot = startRot - totalRotation;
+
+    function animate(currentTime) {
+      const elapsed = currentTime - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      droneRotY = startRot + (targetRot - startRot) * t;
+
+      if (t < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        nextCommand();
+      }
+    }
+    requestAnimationFrame(animate);
+  });
+}
+
+function takeoff(height = 2) {
+    commandQueue.push(() => {
+        const startY = droneY;
+        const targetY = parseFloat(height);
+        const duration = Math.abs(targetY - startY) * 300; // Duration scales with height change
+        const startTime = performance.now();
+
+        function animate(currentTime) {
+            const elapsed = currentTime - startTime;
+            const t = Math.min(elapsed / duration, 1);
+            droneY = startY + (targetY - startY) * t;
+
+            if (t < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                nextCommand();
+            }
+        }
+        requestAnimationFrame(animate);
+    });
+}
+
+function land() {
+    commandQueue.push(() => {
+        const startY = droneY;
+        const targetY = 0.1; // Landing height (zemine sıfır)
+        const duration = Math.abs(targetY - startY) * 300; 
+        const startTime = performance.now();
+
+        function animate(currentTime) {
+            const elapsed = currentTime - startTime;
+            const t = Math.min(elapsed / duration, 1);
+            droneY = startY + (targetY - startY) * t;
+
+            if (t < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                droneY = targetY; // Ensure it settles at exactly targetY
+                nextCommand();
+            }
+        }
+        requestAnimationFrame(animate);
+    });
+}
+
+function up(distance = 1) {
+    commandQueue.push(() => {
+        const startY = droneY;
+        const targetY = startY + parseFloat(distance);
+        const duration = Math.abs(distance) * 200; 
+        const startTime = performance.now();
+
+        function animate(currentTime) {
+            const elapsed = currentTime - startTime;
+            const t = Math.min(elapsed / duration, 1);
+            droneY = startY + (targetY - startY) * t;
+
+            if (t < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                nextCommand();
+            }
+        }
+        requestAnimationFrame(animate);
+    });
+}
+
+function down(distance = 1) {
+    commandQueue.push(() => {
+        const startY = droneY;
+        const targetY = Math.max(0.1, startY - parseFloat(distance)); // Minimum landing height is 0.1
+        const duration = Math.abs(distance) * 200; 
+        const startTime = performance.now();
+
+        function animate(currentTime) {
+            const elapsed = currentTime - startTime;
+            const t = Math.min(elapsed / duration, 1);
+            droneY = startY + (targetY - startY) * t;
+
+            if (t < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                nextCommand();
+            }
+        }
+        requestAnimationFrame(animate);
+    });
+}
+
+function spin() {
+  commandQueue.push(() => {
+    const totalRotation = Math.PI * 2;
+    const duration = 1000;
+    const startTime = performance.now();
+    const startRot = droneRotY;
+    const targetRot = startRot + totalRotation;
+
+    function animate(currentTime) {
+      const elapsed = currentTime - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      droneRotY = startRot + (targetRot - startRot) * t;
+
+      if (t < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        nextCommand();
+      }
+    }
+    requestAnimationFrame(animate);
+  });
+}
+
+function wait(ticks) {
+  // wait fonksiyonu artık doğrudan animation queue'ya boş fonksiyon eklemek yerine
+  // bir Promise döndürerek bekleme süresini yönetiyor.
+  commandQueue.push(() => {
+    return new Promise(resolve => {
+      setTimeout(() => {
+        resolve();
+        nextCommand(); // Bekleme süresi bittikten sonra bir sonraki komuta geç
+      }, ticks * 10); // Her tick 10ms olarak ayarlandı
+    });
+  });
+}
+
+// mode button
+const modeButton = document.getElementById("mode-toggle");
+modeButton.addEventListener("click", () => {
+  if (controlMode === "code") {
+    controlMode = "free";
+    modeButton.textContent = "🕹️ Serbest Sürüş";
+    modeButton.style.backgroundColor = "#2a7";
+    infoPanelFree.style.display = "block";
+    infoPanelCode.style.display = "none";
+    console.log("Mod: Serbest Sürüş");
+  } else {
+    controlMode = "code";
+    modeButton.textContent = "🧠    Kod Sürüşü    👩‍💻";
+    modeButton.style.backgroundColor = "#444";
+    infoPanelFree.style.display = "none";
+    infoPanelCode.style.display = "block";
+    console.log("Mod: Kod Sürüşü");
+  }
+});
+infoPanelCode.style.display = "block"; // Varsayılan olarak kod panelini göster
+
+  </script>
+</body>
+</html>

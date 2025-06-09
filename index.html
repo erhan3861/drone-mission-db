@@ -207,127 +207,71 @@
     import * as THREE from 'three';
     // OrbitControls kaldırıldı
 
-     // Import the functions you need from the SDKs you need
-  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-  import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-  import { getFirestore, collection, addDoc, query, orderBy, limit, getDocs, doc, updateDoc } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+  import { createClient } from 'https://esm.sh/@supabase/supabase-js';
 
-  // TODO: Add SDKs for Firebase products that you want to use
-  // https://firebase.google.com/docs/web/setup#available-libraries
+  const supabaseUrl = 'https://zooprdmywfqtkfdcjodg.supabase.co'; // Kendi URL'niz
+  const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpvb3ByZG15d2ZxdGtmZGNqb2RnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk1MDI2MzIsImV4cCI6MjA2NTA3ODYzMn0.dBEFukLwYKjGgdu8d0XNnz0xWxK3ToyjX7AqZnSvMEU'; // Kendi anon key'iniz
 
-  // Your web app's Firebase configuration
-  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-  const firebaseConfig = {
-    apiKey: "AIzaSyD7GpKpUokGG2gn325x8o2kqa4gU-tTi6w",
-    authDomain: "dronegamestats.firebaseapp.com",
-    projectId: "dronegamestats",
-    storageBucket: "dronegamestats.firebasestorage.app",
-    messagingSenderId: "833558650147",
-    appId: "1:833558650147:web:98c61f4636271e7b56c096",
-    measurementId: "G-WEKDT3H66T"
-  };
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-  // Initialize Firebase
-  const app = initializeApp(firebaseConfig);
-  
-  //const analytics = getAnalytics(app);
- const auth = getAuth(app);
-  const db = getFirestore(app);
+  let currentUserId = null;
 
-  let currentUser = null; // Aktif kullanıcı bilgisi
-
-  // Kullanıcı durumu değiştiğinde (giriş/çıkış)
-  onAuthStateChanged(auth, (user) => {
-    if (user) {
-      currentUser = user;
-      console.log("Kullanıcı giriş yaptı:", user.uid);
-      // Kullanıcı arayüzünde giriş durumunu güncelleme veya hoşgeldin mesajı gösterme
-      // Örneğin, "Hoşgeldin, Anonim Oyuncu!"
+  // Anonim olarak giriş yapma (veya diğer auth yöntemleri)
+  async function signInAnon() {
+    const { data, error } = await supabase.auth.signInAnonymously();
+    if (error) {
+      console.error("Anonim giriş hatası:", error.message);
     } else {
-      currentUser = null;
-      console.log("Kullanıcı çıkış yaptı veya anonim değil.");
-      // Kullanıcı yoksa anonim olarak giriş yapmayı dene
-      signInAnonymously(auth).then(() => {
-        console.log("Anonim olarak giriş yapıldı.");
-      }).catch((error) => {
-        console.error("Anonim giriş hatası:", error);
-      });
+      currentUserId = data.user.id;
+      console.log("Supabase'e anonim olarak giriş yapıldı. User ID:", currentUserId);
     }
-  });
+  }
 
-  // Oyun başladığında veya sayfa yüklendiğinde anonim olarak giriş yapmaya çalış
-  signInAnonymously(auth).then(() => {
-    console.log("Anonim olarak giriş yapıldı.");
-  }).catch((error) => {
-    console.error("Anonim giriş hatası:", error);
-  });
+  // Sayfa yüklendiğinde anonim giriş yap
+  signInAnon();
 
-  // Puanı Firebase'e kaydetme fonksiyonu
-  async function saveScoreToFirebase(score) {
-    if (!currentUser) {
+  // Skoru Supabase'e kaydetme fonksiyonu
+  async function saveScoreToSupabase(scoreValue) {
+    if (!currentUserId) {
       console.warn("Kullanıcı girişi yapılmadı, puan kaydedilemiyor.");
       return;
     }
     try {
-      // 'scores' adında bir koleksiyona puanı ekle
-      const docRef = await addDoc(collection(db, "scores"), {
-        userId: currentUser.uid,
-        score: score,
-        timestamp: new Date(),
-        // İsterseniz drone_log'ları da buraya ekleyebilirsiniz, ancak çok büyük olabilir
-        // droneLogs: [...]
-      });
-      console.log("Puan kaydedildi, Belge ID:", docRef.id);
+      const { data, error } = await supabase
+        .from('scores') // 'scores' tablonuzun adı
+        .insert([
+          { user_id: currentUserId, score: scoreValue }
+        ]);
+
+      if (error) {
+        console.error("Puan kaydetme hatası:", error.message);
+      } else {
+        console.log("Puan kaydedildi:", data);
+      }
     } catch (e) {
-      console.error("Puan kaydetme hatası:", e);
+      console.error("Puan kaydetme genel hatası:", e);
     }
   }
 
-  // En iyi skorları çekme fonksiyonu (örnek)
-  async function getHighScores() {
-    try {
-      const scoresCol = collection(db, "scores");
-      const q = query(scoresCol, orderBy("score", "desc"), limit(10)); // En yüksek 10 skoru al
-      const querySnapshot = await getDocs(q);
-      const highScores = [];
-      querySnapshot.forEach((doc) => {
-        highScores.push(doc.data());
-      });
-      console.log("En Yüksek Skorlar:", highScores);
-      return highScores;
-    } catch (e) {
-      console.error("Skorları çekme hatası:", e);
+  // Yüksek skorları çekme fonksiyonu
+  async function getHighScoresFromSupabase() {
+    const { data, error } = await supabase
+      .from('scores')
+      .select('score, user_id') // Çekmek istediğiniz sütunlar
+      .order('score', { ascending: false }) // Puanı büyükten küçüğe sırala
+      .limit(10); // İlk 10'u al
+
+    if (error) {
+      console.error("Yüksek skorları çekme hatası:", error.message);
       return [];
+    } else {
+      console.log("En Yüksek Skorlar:", data);
+      return data;
     }
   }
 
-  // ... (Geri kalan tüm mevcut oyun kodunuz buraya gelecek) ...
-  // Örneğin, oyunda bir görev bittiğinde veya oyun bittiğinde saveScoreToFirebase(score) çağırın.
-
-  // Malzeme toplandığında veya hedef bölgeye bırakıldığında ilgili bilgileri kaydetmek için
-  // 'animate' fonksiyonunuzdaki ilgili yere aşağıdaki gibi eklemeler yapabilirsiniz:
-  /*
-  // ... animate fonksiyonunun içinde ...
-  if (distToTarget <= targetZoneRadius + 0.5 && drone.position.y < 0.5) {
-      // ... mevcut kodunuz (puan artırma, efektler vb.) ...
-      score += 10;
-      updateScore();
-      // Malzeme bırakıldığında log kaydet (opsiyonel, çok log tutabilir)
-      // saveGameLog({
-      //   userId: currentUser.uid,
-      //   action: "material_dropped",
-      //   materialId: carriedMaterial.uuid, // Malzemeye unique bir ID verebilirsiniz
-      //   position: { x: drone.position.x, y: drone.position.y, z: drone.position.z },
-      //   scoreChange: 10,
-      //   timestamp: new Date()
-      // });
-      carriedMaterial = null;
-  }
-  // ...
-  */
-
-  // Örnek: Oyun bittiğinde skoru kaydetmek için
-  // Bir "oyun bitti" durumu tanımlamanız ve o durumda bu fonksiyonu çağırmanız gerekir.
+  // ... (oyun kodunuzun geri kalanı) ...
+  // Oyun bittiğinde saveScoreToSupabase(score) fonksiyonunu çağırın.
 
 
     let scene = new THREE.Scene();
@@ -754,7 +698,7 @@ document.getElementById("runBtn").onclick = async () => {
               
               score += 10; // Puanlama
               updateScore();
-              saveScoreToFirebase(score)
+              saveScoreToSupabase(score)
               carriedMaterial = null; // Taşıdığı malzemeyi sıfırla
           } else if (drone.position.y < 0.3 && distToTarget > targetZoneRadius + 0.5) {
               // Eğer drone malzeme taşırken hedef dışı bir yerde zemine inerse, malzemeyi düşür
